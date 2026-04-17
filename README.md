@@ -11,7 +11,7 @@
 ### 1. 将 skill 目录复制到你的项目
 
 ```bash
-cp -r skill/ your-project/skill/
+cp -r LLM_Dev_Process/ your-project/skill/
 ```
 
 ### 2. 在支持的工具里加载 SKILL.md
