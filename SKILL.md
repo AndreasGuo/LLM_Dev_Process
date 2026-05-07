@@ -37,16 +37,20 @@
 │   └── wbs_format.md         ← WBS任务单格式
 ```
 
-**项目文件（执行过程中生成，不在skill目录里）：**
+**项目文件（执行过程中生成，统一存放于 `.llm_dev/` 目录）：**
 ```
-/project/
+.llm_dev/
 ├── project_status.json       ← 状态文件
 ├── project_overview.md       ← 项目总纲（阶段一产出）
 ├── architecture.md           ← 架构决策文档（阶段一·五产出）
 ├── ui_spec.md                ← 项目UI规范（阶段二产出）
-├── feature_[模块名].md       ← 各模块功能文件（阶段二产出）
-└── wbs_[模块名].md           ← 各模块WBS任务单（阶段三产出）
+└── modules/
+    └── [模块名]/             ← 每个模块独立目录
+        ├── feature.md        ← 模块功能文件（阶段二产出）
+        └── wbs.md            ← 模块WBS任务单（阶段三产出）
 ```
+
+**目录初始化：** 首次生成任何文件前，若 `.llm_dev/` 不存在则创建；生成模块文件前，创建 `.llm_dev/modules/[模块名]/` 目录。
 
 ---
 
@@ -82,8 +86,9 @@
 **完成条件：** 人确认总纲内容，`project_overview.md` 生成完毕
 
 **完成后：**
-1. 更新状态文件 `phase → architecture`
-2. 记录完成时间
+1. 将总纲文件保存为 `.llm_dev/project_overview.md`
+2. 更新状态文件 `phase → architecture`
+3. 记录完成时间
 
 ---
 
@@ -95,9 +100,9 @@
 1. 读取总纲约束
 2. 提出2-3个可行架构方案（适用场景、优劣、与约束的匹配度）
 3. 人做最终决策
-4. 输出 `architecture.md`，包含：选了什么、为什么选、其他方案为什么没选、模块清单
+4. 输出 `.llm_dev/architecture.md`，包含：选了什么、为什么选、其他方案为什么没选、模块清单
 
-**完成条件：** 人确认架构决策，`architecture.md` 生成完毕，模块清单确定
+**完成条件：** 人确认架构决策，`.llm_dev/architecture.md` 生成完毕，模块清单确定
 
 **完成后：**
 1. 在状态文件中初始化所有模块，状态设为 `pending`
@@ -107,11 +112,11 @@
 
 ### Phase: feature（功能边界确定）
 
-**读取：** `feature_prompt.md` + `feature_spec.md` + `project_overview.md` + `architecture.md`
+**读取：** `feature_prompt.md` + `feature_spec.md` + `.llm_dev/project_overview.md` + `.llm_dev/architecture.md`
 
-**执行：** 按 `feature_prompt.md` 的指令，为每个模块生成功能文件
+**执行：** 按 `feature_prompt.md` 的指令，为每个模块生成功能文件，保存到 `.llm_dev/modules/[模块名]/feature.md`
 
-**如果有UI模块：** 同步生成 `ui_spec.md`（全项目唯一）
+**如果有UI模块：** 同步生成 `.llm_dev/ui_spec.md`（全项目唯一）
 
 **完成条件：** 所有模块的功能文件生成完毕，人确认
 
@@ -124,9 +129,9 @@
 
 ### Phase: wbs（任务分解）
 
-**读取：** `wbs_prompt.md` + `wbs_format.md` + 对应模块的 `feature_[模块名].md`
+**读取：** `wbs_prompt.md` + `wbs_format.md` + 对应模块的 `.llm_dev/modules/[模块名]/feature.md`
 
-**执行：** 按 `wbs_prompt.md` 的指令，为每个模块生成WBS任务单
+**执行：** 按 `wbs_prompt.md` 的指令，为每个模块生成WBS任务单，保存到 `.llm_dev/modules/[模块名]/wbs.md`
 
 **支持并行：** 无依赖关系的模块可以同时生成WBS
 
@@ -140,12 +145,42 @@
 
 ### Phase: execution（执行与验证）
 
+**首次进入执行阶段时，执行测试环境初始化：**
+
+扫描项目根目录，识别测试框架并记录到 `project_status.json` 的 `test_setup` 字段：
+
+| 检测文件 | 对应测试命令 |
+|----------|-------------|
+| `package.json` | `scripts.test`（单元）/ `scripts.test:e2e`（端到端） |
+| `pytest.ini` / `setup.cfg` / `pyproject.toml` | `pytest` |
+| `go.mod` | `go test ./...` |
+| `Makefile` | `make test` / `make test-unit` |
+| 其他 | 询问人工确认后记录 |
+
+如果项目尚无测试框架，按功能文件中的技术栈，在第一个测试步骤前先搭建测试环境。
+
 **每次执行新任务时读取：**
-- 静态：`project_overview.md` + 当前模块 `feature_[模块名].md` + 依赖模块接口契约
-- 动态：当前模块 `wbs_[模块名].md` + 已完成任务摘要
-- 状态：`project_status.json`
+- 静态：`.llm_dev/project_overview.md` + 当前模块 `.llm_dev/modules/[模块名]/feature.md` + 依赖模块接口契约
+- 动态：当前模块 `.llm_dev/modules/[模块名]/wbs.md` + 已完成任务摘要
+- 状态：`project_status.json`（含 `test_setup`）
 
 **执行：** 按WBS任务单逐任务执行，内嵌验证Loop
+
+**内嵌验证Loop（每个步骤完成后必须执行）：**
+
+```
+完成步骤代码
+    ↓
+根据步骤类型执行对应测试命令：
+  数据模型步骤 → 执行 migration，验证 schema
+  业务逻辑步骤 → 运行单元测试（test_setup.unit_test）
+  接口层步骤   → 运行 API 测试（test_setup.api_test 或手动 curl）
+  前端组件步骤 → 运行组件测试（test_setup.component_test）
+  前端接入步骤 → 运行端到端测试（test_setup.e2e_test）
+    ↓
+测试通过 → 继续下一步
+测试失败 → 进入失败处理流程（见 wbs.md 执行说明）
+```
 
 **支持并行：** 无依赖关系的模块可以分配给不同subagent并行执行
 
@@ -168,6 +203,12 @@
     "phase": "overview | architecture | feature | wbs | execution | done",
     "name": "项目名称",
     "last_updated": "YYYY-MM-DD"
+  },
+  "test_setup": {
+    "unit_test": "命令（如 npm test / pytest）",
+    "api_test": "命令或说明（如 pytest tests/api / curl脚本路径）",
+    "component_test": "命令（如 npm run test:components）",
+    "e2e_test": "命令（如 npm run test:e2e / playwright test）"
   },
   "modules": {
     "[模块名]": {
